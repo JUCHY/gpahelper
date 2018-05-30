@@ -1,6 +1,0 @@
-4.0
-Intro to Computer Science	4.0
-Physics 1	3.0
-Writing the Essay: Science	3.0
-Experimental Physics 1	3.7
-Calculus 2	3.3

@@ -8,8 +8,10 @@ http://amzn.to/1LGWsLG
 """
 
 from __future__ import print_function
-import data
-
+import boto3
+user_data = { }
+dynamodb = boto3.resource('dynamodb')
+table = dynamodb.Table('gpa_app_data')
 # --------------- Helpers that build all of the responses ----------------------
 
 def build_speechlet_response(title, output, reprompt_text, should_end_session):
@@ -42,13 +44,22 @@ def build_response(session_attributes, speechlet_response):
 
 
 # --------------- Functions that control the skill's behavior ------------------
+def get_welcome_response():
+    """ If we wanted to initialize the session to have some attributes we could
+    add those here
+    """
+    global user_data
+    user_data = table.get_item( Key={'user_id' : '01111001111'})
+    user_data = user_data['Item']['class_data']
+    
 
-def calculategpa(intent,session):
-    data.calculategpa();
     session_attributes = {}
-    card_title = "Calculate"
-    speech_output= "Your GPA is currently "+ data.personGPA
-    reprompt_text = ""
+    card_title = "Welcome"
+    speech_output = "Welcome to the GPA Helper. " \
+                    "You may use commands such as tell me my GPA, or Add Class. " 
+    # If the user either does not reply to the welcome message or says something
+    # that is not understood, they will be prompted again with this text.
+    reprompt_text = "If you need any help, please ask Alexa for commands."
     should_end_session = False
     return build_response(session_attributes, build_speechlet_response(
         card_title, speech_output, reprompt_text, should_end_session))
@@ -63,48 +74,7 @@ def addclass1(intent,session):
     should_end_session = False
     return build_response(session_attributes, build_speechlet_response(
         card_title, speech_output, reprompt_text, should_end_session))
-        
-def remclass(intent,session):
-    session_attributes = {}
-    card_title = "Welcome"
-    if 'gone' in intent['slots']:
-        yourclass = intent['slots']['gone']['value']
-    data.removeclass(yourclass)
-    data.calculategpa()
-    speech_output = "The class "+yourclass+" has been removed"
-    reprompt_text = "Do you need any more help?"
-    should_end_session = False
-    return build_response(session_attributes, build_speechlet_response(
-        card_title, speech_output, reprompt_text, should_end_session))
 
-
-        
-def tellgpa(intent,session):
-    data.calculategpa()
-    session_attributes = {}
-    card_title = "Tell"
-    speech_output= "Your GPA is currently "+ data.personGPA
-    reprompt_text = "Is there anything else you want to know?"
-    should_end_session = False
-    return build_response(session_attributes, build_speechlet_response(
-        card_title, speech_output, reprompt_text, should_end_session))
-
-def get_welcome_response():
-    """ If we wanted to initialize the session to have some attributes we could
-    add those here
-    """
-
-    session_attributes = {}
-    card_title = "Welcome"
-    speech_output = "Welcome to the GPA Helper. " \
-                    "You may use commands such as tell me my GPA, or Add Class. " 
-    # If the user either does not reply to the welcome message or says something
-    # that is not understood, they will be prompted again with this text.
-    reprompt_text = "If you need any help, please ask Alexa for commands."
-    should_end_session = False
-    return build_response(session_attributes, build_speechlet_response(
-        card_title, speech_output, reprompt_text, should_end_session))
-        
 def addclass2(intent,session):
     card_title = "Add Class"
     should_end_session = False
@@ -114,10 +84,9 @@ def addclass2(intent,session):
             gpa1 = intent['slots']['one']['value']
             gpa2 = intent['slots']['two']['value']
             gpa = gpa1+'.'+gpa2
-            newgpa = float(gpa)
             addingclass= session['attributes']['class']
-            data.addclass(addingclass,newgpa)
-            data.calculategpa()
+            global user_data
+            user_data.update({addingclass: gpa})
             speech_output= "The class, "+addingclass+" has been added, with a GPA of "+ gpa
             reprompt_text = ""
             
@@ -128,12 +97,41 @@ def addclass2(intent,session):
     return build_response(session_attributes, build_speechlet_response(
         card_title, speech_output, reprompt_text, should_end_session))
         
-
-
+def remclass(intent,session):
+    session_attributes = {}
+    card_title = "Welcome"
+    if 'gone' in intent['slots']:
+        yourclass = intent['slots']['gone']['value']
+    yourclass = str.lower(yourclass)
+    global user_data
+    del user_data[yourclass]
+    speech_output = "The class "+yourclass+" has been removed"
+    reprompt_text = "Do you need any more help?"
+    should_end_session = False
+    return build_response(session_attributes, build_speechlet_response(
+        card_title, speech_output, reprompt_text, should_end_session))
+        
+def tellgpa(intent,session):
+    global user_data
+    gpa = calculategpa(user_data)
+    gpa = str(gpa)
+    session_attributes = {}
+    card_title = "Tell"
+    speech_output= "Your GPA is currently "+ gpa
+    reprompt_text = "Is there anything else you want to know?"
+    should_end_session = False
+    return build_response(session_attributes, build_speechlet_response(
+        card_title, speech_output, reprompt_text, should_end_session))
+        
 def handle_session_end_request():
-    data.savefunction()
-    data.calculategpa()
-    data.savefunction()
+    global user_data
+    table.put_item(
+        
+        Item={
+                'user_id': "01111001111",
+                'class_data': user_data
+            }
+        )
     card_title = "Session Ended"
     speech_output = "Thank you for trying out the GPA Helper. " \
                     "Your current info has been saved, have a nice day! "
@@ -141,6 +139,17 @@ def handle_session_end_request():
     should_end_session = True
     return build_response({}, build_speechlet_response(
         card_title, speech_output, None, should_end_session))
+
+
+
+#-----------------Functions that aid program----------------
+def calculategpa(userdata):
+    value = 0
+    tick = 0
+    for i in userdata.values():
+        value = value + float(i)
+        tick += 1
+    return value/tick
 
 # --------------- Events ------------------
 
@@ -172,9 +181,7 @@ def on_intent(intent_request, session):
     intent_name = intent_request['intent']['name']
 
     # Dispatch to your skill's intent handlers
-    if intent_name == "calculategpa":
-        return calculategpa(intent, session)
-    elif intent_name == "gpateller":
+    if  intent_name == "gpateller":
         return tellgpa(intent, session)
     elif intent_name=="addclass":
         return addclass1(intent,session)
@@ -195,6 +202,14 @@ def on_session_ended(session_ended_request, session):
 
     Is not called when the skill returns should_end_session=true
     """
+    global user_data
+    table.put_item(
+        
+        Item={
+                'user_id': "01111001111",
+                'class_data': user_data
+            }
+        )
     print("on_session_ended requestId=" + session_ended_request['requestId'] +
           ", sessionId=" + session['sessionId'])
     # add cleanup logic here
@@ -215,7 +230,7 @@ def lambda_handler(event, context):
     function.
     """
     # if (event['session']['application']['applicationId'] !=
-    #         "amzn1.echo-sdk-ams.app.[unique-value-here]"):
+    #         "amzn1.echo-sdk-ams.app.[amzn1.ask.skill.aea7d674-041d-43a3-81c0-8dfa6a7e43f2]"):
     #     raise ValueError("Invalid Application ID")
 
     if event['session']['new']:
